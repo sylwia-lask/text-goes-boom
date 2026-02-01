@@ -1,7 +1,9 @@
 use wasm_bindgen::prelude::*;
 
-mod particles;
 mod rng;
+mod outline;
+mod relax;
+mod particles;
 
 #[wasm_bindgen]
 pub fn particles_from_rgba(

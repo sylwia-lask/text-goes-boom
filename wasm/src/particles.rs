@@ -1,3 +1,5 @@
+use crate::outline::{build_edge_mask, build_inside_mask, project_to_nearest_edge};
+use crate::relax::relax_on_edges;
 use crate::rng::Lcg;
 
 pub fn particles_from_rgba(
@@ -14,43 +16,82 @@ pub fn particles_from_rgba(
         return vec![];
     }
 
+    let inside = build_inside_mask(w, h, rgba, alpha_threshold);
+    let edge = build_edge_mask(w, h, &inside);
+
     let step = step.max(1) as usize;
-    let mut out = Vec::with_capacity((w / step) * (h / step) * 8);
+    let keep_prob = 1.0 / (step as f32 * step as f32);
 
-    let mut rng = Lcg::new(0x1234_5678);
+    let mut rng = Lcg::new(0xA3C5_1F2D);
 
-    for y in (0..h).step_by(step) {
-        for x in (0..w).step_by(step) {
-            let idx = (y * w + x) * 4;
-            let a = rgba[idx + 3];
+    const MULTI: usize = 4;
 
-            if a <= alpha_threshold {
+    let mut px: Vec<f32> = Vec::new();
+    let mut py: Vec<f32> = Vec::new();
+
+    for y in 0..h {
+        for x in 0..w {
+            let i = y * w + x;
+            if edge[i] == 0 {
                 continue;
             }
 
-            let nx = (x as f32 + 0.5) / w as f32;
-            let ny = (y as f32 + 0.5) / h as f32;
+            if rng.next_f32() > keep_prob {
+                continue;
+            }
 
-            let mut cx = nx * 2.0 - 1.0;
-            let mut cy = 1.0 - ny * 2.0;
+            for _ in 0..MULTI {
+                let jx = (rng.next_f32() - 0.5) * (step as f32 * 0.9);
+                let jy = (rng.next_f32() - 0.5) * (step as f32 * 0.9);
 
-            cx += (rng.next_f32() - 0.5) * 0.01;
-            cy += (rng.next_f32() - 0.5) * 0.01;
+                let mut fx = x as f32 + 0.5 + jx;
+                let mut fy = y as f32 + 0.5 + jy;
 
-            let seed = rng.next_f32();
-            let life = 1.0;
+                fx = fx.clamp(0.5, w as f32 - 0.5);
+                fy = fy.clamp(0.5, h as f32 - 0.5);
 
-            out.extend_from_slice(&[
-                cx,
-                cy,
-                0.0,
-                0.0,
-                cx,
-                cy,
-                seed,
-                life,
-            ]);
+                let (sx, sy) = project_to_nearest_edge(
+                    fx,
+                    fy,
+                    w,
+                    h,
+                    &edge,
+                    (step as i32).max(4) * 2,
+                );
+                px.push(sx);
+                py.push(sy);
+            }
         }
+    }
+
+    let radius_px = (step as f32 * 1.25 + 2.0).max(2.0);
+    let iters = 7;
+    let snap_radius_px = (step as i32).max(2) * 3 + 5;
+
+    relax_on_edges(&mut px, &mut py, w, h, &edge, radius_px, iters, snap_radius_px);
+
+    let n = px.len();
+    let mut out: Vec<f32> = Vec::with_capacity(n * 8);
+
+    for i in 0..n {
+        let nx = px[i] / w as f32;
+        let ny = py[i] / h as f32;
+
+        let cx = nx * 2.0 - 1.0;
+        let cy = 1.0 - ny * 2.0;
+
+        let seed = rng.next_f32();
+        let life = 1.0;
+
+        out.push(cx);
+        out.push(cy);
+        out.push(0.0);
+        out.push(0.0);
+
+        out.push(cx);
+        out.push(cy);
+        out.push(seed);
+        out.push(life);
     }
 
     out
