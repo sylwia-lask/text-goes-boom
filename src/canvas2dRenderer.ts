@@ -83,7 +83,6 @@ export class Canvas2DRenderer {
   private mouse            = { x: 0, y: 0, down: false };
   private time             = 0;
   private lastT            = 0;
-  private timeAccumulator  = 0;
 
   private fpsHistory: number[] = [];
   private _fps = 0;
@@ -134,18 +133,13 @@ export class Canvas2DRenderer {
       const now    = performance.now();
       const wallDt = (now - this.lastT) / 1000;
       this.lastT   = now;
+      const dt = Math.min(wallDt, 1 / 30);
+      this.time += dt;
 
       this.fpsHistory.push(1 / wallDt);
       if (this.fpsHistory.length > 30) this.fpsHistory.shift();
       this._fps = this.fpsHistory.reduce((a, b) => a + b, 0) / this.fpsHistory.length;
-
-      const FIXED_DT = 1 / 60;
-      this.timeAccumulator = Math.min(this.timeAccumulator + wallDt, FIXED_DT * 4);
-      while (this.timeAccumulator >= FIXED_DT) {
-        this.time            += FIXED_DT;
-        this.tick(FIXED_DT);
-        this.timeAccumulator -= FIXED_DT;
-      }
+      this.tick(dt);
 
       this.resize();
       this.draw();
@@ -185,8 +179,9 @@ export class Canvas2DRenderer {
       let ay = (this.homeY[i] - py) * SPRING;
 
       const scale = 2.0 + s * 3.0;
-      ax += (hash11(px * scale * 10.0 + py * scale * 57.0 + t)        - 0.5) * NOISE;
-      ay += (hash11(px * scale * 99.0 + py * scale * 13.0 + t * 0.73) - 0.5) * NOISE;
+      const noiseScale = Math.sqrt(1.0 / (dt * 60.0));
+      ax += (hash11(px * scale * 10.0 + py * scale * 57.0 + t)        - 0.5) * NOISE * noiseScale;
+      ay += (hash11(px * scale * 99.0 + py * scale * 13.0 + t * 0.73) - 0.5) * NOISE * noiseScale;
 
       if (md) {
         const dx    = px - mx;
@@ -197,8 +192,9 @@ export class Canvas2DRenderer {
         ay += (dy / d) * (0.05 / dist2);
       }
 
-      vx = vx * DAMP + ax * dt;
-      vy = vy * DAMP + ay * dt;
+      const damp = Math.pow(DAMP, dt * 60);
+      vx = vx * damp + ax * dt;
+      vy = vy * damp + ay * dt;
       px += vx * dt;
       py += vy * dt;
 
