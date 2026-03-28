@@ -4,8 +4,6 @@
 
 A WebGPU + WebAssembly particle demo. Type any phrase, press *Rebuild*, then click and drag to explode the text.
 
-![screenshot](docs/screenshot.png)
-
 ## What it does
 
 Particles are placed inside the typed glyphs and spring back to their home positions. Every frame, a WebGPU compute shader runs an N-body repulsion between all particles so they spread out naturally rather than piling on top of each other.
