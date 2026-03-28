@@ -16,6 +16,7 @@ export default function TextGoesBoom() {
   const [status, setStatus] = useState<"boot" | "ready" | "error">("boot");
   const [error, setError] = useState<string>("");
   const [bench, setBench] = useState<{ wasmMs: number; jsMs: number } | null>(null);
+  const [fps, setFps] = useState(0);
 
   const fontFamily = useMemo(
     () => "Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
@@ -39,6 +40,14 @@ export default function TextGoesBoom() {
     setBench({ wasmMs, jsMs });
     r.setParticles(particles);
   };
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      const f = rendererRef.current?.fps;
+      if (f !== undefined) setFps(Math.round(f));
+    }, 500);
+    return () => clearInterval(id);
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -218,6 +227,11 @@ export default function TextGoesBoom() {
                   </div>
 
                   <div className="hidden sm:flex items-center gap-2 text-xs text-white/55">
+                    {status === "ready" && (
+                      <span className={`rounded-full border px-2 py-1 tabular-nums font-bold ${fps >= 55 ? "border-emerald-400/30 text-emerald-400" : fps >= 30 ? "border-yellow-400/30 text-yellow-400" : "border-red-400/30 text-red-400"}`}>
+                        {fps} fps
+                      </span>
+                    )}
                     <span className="rounded-full border border-white/10 bg-white/5 px-2 py-1">
                       particles <span className="text-white/80 tabular-nums">{particleCount}</span>
                     </span>

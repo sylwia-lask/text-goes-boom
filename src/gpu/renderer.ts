@@ -36,6 +36,9 @@ export class TextBoomRenderer {
 
   private lastT = 0;
   private time = 0;
+  private fpsHistory: number[] = [];
+  private _fps = 0;
+  get fps() { return this._fps; }
 
   private mouse = { x: 0, y: 0, down: false };
 
@@ -186,9 +189,14 @@ export class TextBoomRenderer {
     this.lastT = performance.now();
     const frame = () => {
       const now = performance.now();
-      const dt = Math.min((now - this.lastT) / 1000, 1 / 30);
+      const wallDt = (now - this.lastT) / 1000;
+      const dt = Math.min(wallDt, 1 / 30);
       this.lastT = now;
       this.time += dt;
+
+      this.fpsHistory.push(1 / wallDt);
+      if (this.fpsHistory.length > 30) this.fpsHistory.shift();
+      this._fps = this.fpsHistory.reduce((a, b) => a + b, 0) / this.fpsHistory.length;
 
       this.resizeCanvasToDisplaySize();
 
