@@ -185,9 +185,12 @@ export class TextBoomRenderer {
     this.rebuildBindGroups();
   }
 
+  private rafId = 0;
+  private frameCallback: FrameRequestCallback = () => {};
+
   start() {
     this.lastT = performance.now();
-    const frame = () => {
+    this.frameCallback = () => {
       const now = performance.now();
       const wallDt = (now - this.lastT) / 1000;
       const dt = Math.min(wallDt, 1 / 30);
@@ -199,13 +202,21 @@ export class TextBoomRenderer {
       this._fps = this.fpsHistory.reduce((a, b) => a + b, 0) / this.fpsHistory.length;
 
       this.resizeCanvasToDisplaySize();
-
       this.updateUniforms(dt);
       this.tick();
 
-      requestAnimationFrame(frame);
+      this.rafId = requestAnimationFrame(this.frameCallback);
     };
-    requestAnimationFrame(frame);
+    this.rafId = requestAnimationFrame(this.frameCallback);
+  }
+
+  pause() {
+    cancelAnimationFrame(this.rafId);
+  }
+
+  resume() {
+    this.lastT = performance.now();
+    this.rafId = requestAnimationFrame(this.frameCallback);
   }
 
   private rebuildBindGroups() {
@@ -241,6 +252,7 @@ export class TextBoomRenderer {
     f32[2] = this.mouse.x;
     f32[3] = this.mouse.y;
     u32[4] = this.mouse.down ? 1 : 0;
+    f32[5] = Math.pow(0.92, dt * 60); // damp normalised to 60 fps reference
 
     this.device.queue.writeBuffer(this.buffers.simUniform, 0, sim);
 

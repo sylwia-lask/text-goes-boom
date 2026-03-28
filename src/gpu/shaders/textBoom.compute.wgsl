@@ -11,7 +11,7 @@ struct SimParams {
   time      : f32,
   mouse     : vec2<f32>,
   mouseDown : u32,
-  _pad      : u32,
+  damp      : f32,
 };
 
 @group(0) @binding(0) var<storage, read_write> particlesA : array<ParticleA>;
@@ -38,9 +38,10 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
 
   var acc = (home - myPos) * SPRING;
 
-  let scale = 2.0 + seed * 3.0;
-  acc.x += (hash11(myPos.x * scale * 10.0 + myPos.y * scale * 57.0 + sim.time)        - 0.5) * NOISE;
-  acc.y += (hash11(myPos.x * scale * 99.0 + myPos.y * scale * 13.0 + sim.time * 0.73) - 0.5) * NOISE;
+  let scale      = 2.0 + seed * 3.0;
+  let noiseScale = sqrt(1.0 / (sim.dt * 60.0)); // normalise noise variance to dt=1/60 reference
+  acc.x += (hash11(myPos.x * scale * 10.0 + myPos.y * scale * 57.0 + sim.time)        - 0.5) * NOISE * noiseScale;
+  acc.y += (hash11(myPos.x * scale * 99.0 + myPos.y * scale * 13.0 + sim.time * 0.73) - 0.5) * NOISE * noiseScale;
 
   if sim.mouseDown == 1u {
     let d     = myPos - sim.mouse;
@@ -48,7 +49,7 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
     acc += normalize(d) * (0.05 / dist2);
   }
 
-  myVel = myVel * DAMP + acc * sim.dt;
+  myVel = myVel * sim.damp + acc * sim.dt;
   myPos = myPos + myVel * sim.dt;
 
   if myPos.x < -1.1 { myPos.x = -1.1; myVel.x *= -0.4; }
