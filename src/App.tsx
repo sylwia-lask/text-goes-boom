@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ensureWasmReady, particlesFromImageData } from "./wasm";
 import { rasterizeTextToImageData } from "./text/resizeText";
 import { TextBoomRenderer } from "./gpu/renderer";
+import { runBenchmark } from "./benchmark";
 
 export default function TextGoesBoom() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -14,6 +15,7 @@ export default function TextGoesBoom() {
   const [particleCount, setParticleCount] = useState(0);
   const [status, setStatus] = useState<"boot" | "ready" | "error">("boot");
   const [error, setError] = useState<string>("");
+  const [bench, setBench] = useState<{ wasmMs: number; jsMs: number } | null>(null);
 
   const fontFamily = useMemo(
     () => "Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
@@ -32,9 +34,10 @@ export default function TextGoesBoom() {
       paddingPx: 64,
     });
 
-    const packed = particlesFromImageData(img, step, 10);
-    setParticleCount(packed.length / 8);
-    r.setParticles(packed);
+    const { particles, wasmMs, jsMs } = runBenchmark(img, step, 10, particlesFromImageData);
+    setParticleCount(particles.length / 8);
+    setBench({ wasmMs, jsMs });
+    r.setParticles(particles);
   };
 
   useEffect(() => {
@@ -232,6 +235,25 @@ export default function TextGoesBoom() {
                 </div>
               )}
             </div>
+
+            {bench && (
+              <div className="mt-4 rounded-2xl border border-white/10 bg-black/30 backdrop-blur-md p-4 flex items-center gap-6 text-sm">
+                <span className="text-white/50 text-xs uppercase tracking-wider">Last rebuild</span>
+                <span>
+                  <span className="text-white/50">WASM </span>
+                  <span className="font-bold tabular-nums text-cyan-300">{bench.wasmMs.toFixed(1)} ms</span>
+                </span>
+                <span>
+                  <span className="text-white/50">JS </span>
+                  <span className="font-bold tabular-nums text-fuchsia-300">{bench.jsMs.toFixed(1)} ms</span>
+                </span>
+                <span className="text-white/40 text-xs">
+                  {bench.jsMs > bench.wasmMs
+                    ? `WASM ${(bench.jsMs / bench.wasmMs).toFixed(1)}× faster`
+                    : `JS ${(bench.wasmMs / bench.jsMs).toFixed(1)}× faster`}
+                </span>
+              </div>
+            )}
 
             <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div className="rounded-2xl border border-white/10 bg-black/30 backdrop-blur-md p-4">
