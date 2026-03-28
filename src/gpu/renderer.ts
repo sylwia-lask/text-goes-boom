@@ -217,6 +217,7 @@ export class TextBoomRenderer {
       entries: [
         { binding: 0, resource: { buffer: this.buffers.particlesA } },
         { binding: 1, resource: { buffer: this.buffers.renderUniform } },
+        { binding: 2, resource: { buffer: this.buffers.particlesB } },
       ],
     });
   }

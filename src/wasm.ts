@@ -1,4 +1,4 @@
-import initWasm, { particles_from_rgba } from "./wasm-pkg/text_layout_wasm"; // <-- dostosuj ścieżkę
+import initWasm, { particles_from_rgba } from "./wasm-pkg/text_layout_wasm"; 
 
 let _ready: Promise<void> | null = null;
 

@@ -1,6 +1,6 @@
-use crate::outline::{build_edge_mask, build_inside_mask, project_to_nearest_edge};
-use crate::relax::relax_on_edges;
+use crate::outline::build_inside_mask;
 use crate::rng::Lcg;
+use crate::sdf::compute_sdf;
 
 pub fn particles_from_rgba(
     width: u32,
@@ -17,81 +17,70 @@ pub fn particles_from_rgba(
     }
 
     let inside = build_inside_mask(w, h, rgba, alpha_threshold);
-    let edge = build_edge_mask(w, h, &inside);
+
+    // SDF: 0.0 = on the edge, 1.0 = deepest interior.
+    // This is the real work that justifies WASM – O(w*h) exact EDT.
+    let sdf = compute_sdf(w, h, &inside);
 
     let step = step.max(1) as usize;
-    let keep_prob = 1.0 / (step as f32 * step as f32);
+    let half = step / 2;
 
     let mut rng = Lcg::new(0xA3C5_1F2D);
+    let mut out: Vec<f32> = Vec::new();
 
-    const MULTI: usize = 4;
-
-    let mut px: Vec<f32> = Vec::new();
-    let mut py: Vec<f32> = Vec::new();
-
-    for y in 0..h {
-        for x in 0..w {
+    // Grid-sample every interior pixel at `step`-pixel intervals.
+    // Pixels near the edge (low SDF) are always kept; deep interior
+    // pixels are kept with decreasing probability so the density
+    // naturally tapers toward the centre – making the edge pop visually.
+    let mut y = half.max(1);
+    while y < h {
+        let mut x = half.max(1);
+        while x < w {
             let i = y * w + x;
-            if edge[i] == 0 {
+            if inside[i] == 0 {
+                x += step;
                 continue;
             }
 
-            if rng.next_f32() > keep_prob {
+            let sdf_here = sdf[i];
+
+            // Probability: 1.0 on the edge → ~0.25 deep in the interior.
+            // This keeps outlines sharp and fills the body with fewer particles.
+            let prob = 1.0 - sdf_here * 0.75;
+            if rng.next_f32() > prob {
+                x += step;
                 continue;
             }
 
-            for _ in 0..MULTI {
-                let jx = (rng.next_f32() - 0.5) * (step as f32 * 0.9);
-                let jy = (rng.next_f32() - 0.5) * (step as f32 * 0.9);
+            // Small sub-pixel jitter so the grid pattern is invisible.
+            let jx = (rng.next_f32() - 0.5) * step as f32 * 0.85;
+            let jy = (rng.next_f32() - 0.5) * step as f32 * 0.85;
+            let fx = (x as f32 + 0.5 + jx).clamp(0.5, w as f32 - 0.5);
+            let fy = (y as f32 + 0.5 + jy).clamp(0.5, h as f32 - 0.5);
 
-                let mut fx = x as f32 + 0.5 + jx;
-                let mut fy = y as f32 + 0.5 + jy;
+            // SDF at jittered position (fall back to grid-cell value if outside).
+            let ix = (fx as usize).min(w - 1);
+            let iy = (fy as usize).min(h - 1);
+            let sdf_val = if inside[iy * w + ix] == 1 {
+                sdf[iy * w + ix]
+            } else {
+                sdf_here
+            };
 
-                fx = fx.clamp(0.5, w as f32 - 0.5);
-                fy = fy.clamp(0.5, h as f32 - 0.5);
+            // Convert pixel coords to NDC [-1, 1].
+            let cx = fx / w as f32 * 2.0 - 1.0;
+            let cy = 1.0 - fy / h as f32 * 2.0;
 
-                let (sx, sy) = project_to_nearest_edge(
-                    fx,
-                    fy,
-                    w,
-                    h,
-                    &edge,
-                    (step as i32).max(4) * 2,
-                );
-                px.push(sx);
-                py.push(sy);
-            }
+            let seed = rng.next_f32();
+
+            // 8 floats per particle:
+            //   particlesA: pos.x, pos.y, vel.x, vel.y
+            //   particlesB: home.x, home.y, seed, sdf   ← sdf replaces life
+            out.extend_from_slice(&[cx, cy, 0.0, 0.0, cx, cy, seed, sdf_val]);
+
+            x += step;
         }
-    }
-
-    let radius_px = (step as f32 * 1.25 + 2.0).max(2.0);
-    let iters = 7;
-    let snap_radius_px = (step as i32).max(2) * 3 + 5;
-
-    relax_on_edges(&mut px, &mut py, w, h, &edge, radius_px, iters, snap_radius_px);
-
-    let n = px.len();
-    let mut out: Vec<f32> = Vec::with_capacity(n * 8);
-
-    for i in 0..n {
-        let nx = px[i] / w as f32;
-        let ny = py[i] / h as f32;
-
-        let cx = nx * 2.0 - 1.0;
-        let cy = 1.0 - ny * 2.0;
-
-        let seed = rng.next_f32();
-        let life = 1.0;
-
-        out.push(cx);
-        out.push(cy);
-        out.push(0.0);
-        out.push(0.0);
-
-        out.push(cx);
-        out.push(cy);
-        out.push(seed);
-        out.push(life);
+        y += step;
     }
 
     out

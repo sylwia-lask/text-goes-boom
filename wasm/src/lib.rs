@@ -2,7 +2,7 @@ use wasm_bindgen::prelude::*;
 
 mod rng;
 mod outline;
-mod relax;
+mod sdf;
 mod particles;
 
 #[wasm_bindgen]
