@@ -1,7 +1,5 @@
-/// 1-D squared Euclidean distance transform (Felzenszwalb-Huttenlocher).
-///
-/// `f[i]` must be 0.0 for seed pixels and `f32::INFINITY` for non-seeds.
-/// Returns the squared distance to the nearest seed for every position.
+// 1-D squared EDT (Felzenszwalb-Huttenlocher).
+// f[i] = 0.0 for seed pixels, INFINITY for non-seeds.
 fn dt1d(f: &[f32]) -> Vec<f32> {
     let n = f.len();
     let mut d = vec![f32::INFINITY; n];
@@ -9,21 +7,18 @@ fn dt1d(f: &[f32]) -> Vec<f32> {
         return d;
     }
 
-    // v[k]  – index of the parabola that owns the lower envelope at segment k
-    // z[k]  – left boundary of segment k  (z[k+1] – right boundary)
     let mut v = vec![0i32; n];
     let mut z = vec![0f32; n + 1];
-    let mut k: i32 = -1; // no parabola added yet
+    let mut k: i32 = -1;
 
     for q in 0..n as i32 {
         let fq = f[q as usize];
         if fq == f32::INFINITY {
-            continue; // an all-INF parabola never contributes to the lower envelope
+            continue;
         }
 
         loop {
             if k < 0 {
-                // first seed
                 k = 0;
                 v[0] = q;
                 z[0] = f32::NEG_INFINITY;
@@ -33,12 +28,10 @@ fn dt1d(f: &[f32]) -> Vec<f32> {
 
             let r = v[k as usize];
             let fr = f[r as usize];
-            // x-coordinate where parabola at q takes over from parabola at r
             let s = ((fq + (q * q) as f32) - (fr + (r * r) as f32))
                 / (2.0 * (q - r) as f32);
 
             if s <= z[k as usize] {
-                // parabola at r is dominated – remove it
                 k -= 1;
             } else {
                 k += 1;
@@ -51,7 +44,7 @@ fn dt1d(f: &[f32]) -> Vec<f32> {
     }
 
     if k < 0 {
-        return d; // no seeds at all
+        return d;
     }
 
     let mut j: i32 = 0;
@@ -67,17 +60,9 @@ fn dt1d(f: &[f32]) -> Vec<f32> {
     d
 }
 
-/// Compute a normalised interior SDF for every pixel.
-///
-/// Returns a `Vec<f32>` of length `w * h`:
-/// - `0.0` for exterior pixels (outside the text)
-/// - `0.0`–`1.0` for interior pixels, where `0.0` ≈ on the edge and
-///   `1.0` ≈ deepest interior (farthest from any edge)
 pub fn compute_sdf(w: usize, h: usize, inside: &[u8]) -> Vec<f32> {
     let n = w * h;
 
-    // ── Pass 1: 1-D EDT along X for every row ──────────────────────────────
-    // Seeds are exterior pixels (inside == 0).
     let mut tmp = vec![0f32; n];
     for y in 0..h {
         let f: Vec<f32> = (0..w)
@@ -89,9 +74,6 @@ pub fn compute_sdf(w: usize, h: usize, inside: &[u8]) -> Vec<f32> {
         }
     }
 
-    // ── Pass 2: 1-D EDT along Y for every column ───────────────────────────
-    // Input values are the squared X-distances from pass 1; the 2-D EDT is
-    // separable so this gives the true squared Euclidean distance.
     let mut dist2 = vec![0f32; n];
     for x in 0..w {
         let f: Vec<f32> = (0..h).map(|y| tmp[y * w + x]).collect();
@@ -101,7 +83,6 @@ pub fn compute_sdf(w: usize, h: usize, inside: &[u8]) -> Vec<f32> {
         }
     }
 
-    // ── Normalise to [0, 1] for interior pixels ─────────────────────────────
     let max_dist = dist2
         .iter()
         .enumerate()
@@ -109,7 +90,7 @@ pub fn compute_sdf(w: usize, h: usize, inside: &[u8]) -> Vec<f32> {
         .map(|(_, &v)| v)
         .fold(0f32, f32::max)
         .sqrt()
-        .max(1.0); // avoid division by zero for single-pixel glyphs
+        .max(1.0);
 
     (0..n)
         .map(|i| {

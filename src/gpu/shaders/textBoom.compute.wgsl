@@ -1,77 +1,60 @@
 struct ParticleA {
-  a: vec4<f32>,
+  a: vec4<f32>, // pos.xy, vel.xy
 };
 
 struct ParticleB {
-  b: vec4<f32>,
+  b: vec4<f32>, // home.xy, seed, sdf
 };
 
 struct SimParams {
-  dt: f32,
-  time: f32,
-  mouse: vec2<f32>,      
-  mouseDown: u32,
-  _pad: u32,
+  dt        : f32,
+  time      : f32,
+  mouse     : vec2<f32>,
+  mouseDown : u32,
+  _pad      : u32,
 };
 
 @group(0) @binding(0) var<storage, read_write> particlesA : array<ParticleA>;
-@group(0) @binding(1) var<storage, read_write> particlesB : array<ParticleB>;
-@group(0) @binding(2) var<uniform> sim : SimParams;
+@group(0) @binding(1) var<storage, read>       particlesB : array<ParticleB>;
+@group(0) @binding(2) var<uniform>             sim        : SimParams;
 
 fn hash11(x: f32) -> f32 {
-  let s = sin(x * 12.9898) * 43758.5453;
-  return fract(s);
+  return fract(sin(x * 12.9898) * 43758.5453);
 }
 
-fn noise2(p: vec2<f32>) -> vec2<f32> {
-  let n1 = hash11(p.x * 10.0 + p.y * 57.0 + sim.time);
-  let n2 = hash11(p.x * 99.0 + p.y * 13.0 + sim.time * 0.73);
-  return vec2<f32>(n1 - 0.5, n2 - 0.5);
-}
+const SPRING : f32 = 12.0;
+const DAMP   : f32 = 0.92;
+const NOISE  : f32 = 1.5;
 
 @compute @workgroup_size(256)
-fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   let i = gid.x;
-  if (i >= arrayLength(&particlesA)) {
-    return;
-  }
+  if i >= arrayLength(&particlesA) { return; }
 
-  var a = particlesA[i].a;
-  var b = particlesB[i].b;
+  var myPos = particlesA[i].a.xy;
+  var myVel = particlesA[i].a.zw;
+  let home  = particlesB[i].b.xy;
+  let seed  = particlesB[i].b.z;
 
-  var pos = a.xy;
-  var vel = a.zw;
-  let home = b.xy;
-  let seed = b.z;
-  var life = b.w;
+  var acc = (home - myPos) * SPRING;
 
-  let toHome = home - pos;
-  let springK = 10.0;
-  var acc = toHome * springK;
+  let scale = 2.0 + seed * 3.0;
+  acc.x += (hash11(myPos.x * scale * 10.0 + myPos.y * scale * 57.0 + sim.time)        - 0.5) * NOISE;
+  acc.y += (hash11(myPos.x * scale * 99.0 + myPos.y * scale * 13.0 + sim.time * 0.73) - 0.5) * NOISE;
 
-  let n = noise2(pos * (2.0 + seed * 3.0));
-  acc += n * 2.0;
-
-  if (sim.mouseDown == 1u) {
-    let d = pos - sim.mouse;
+  if sim.mouseDown == 1u {
+    let d     = myPos - sim.mouse;
     let dist2 = max(dot(d, d), 0.0005);
-    let strength = 0.05 / dist2; 
-    acc += normalize(d) * strength;
+    acc += normalize(d) * (0.05 / dist2);
   }
 
-  let damping = 0.92;
-  vel = vel * damping;
+  myVel = myVel * DAMP + acc * sim.dt;
+  myPos = myPos + myVel * sim.dt;
 
-  vel = vel + acc * sim.dt;
-  pos = pos + vel * sim.dt;
+  if myPos.x < -1.1 { myPos.x = -1.1; myVel.x *= -0.4; }
+  if myPos.x >  1.1 { myPos.x =  1.1; myVel.x *= -0.4; }
+  if myPos.y < -1.1 { myPos.y = -1.1; myVel.y *= -0.4; }
+  if myPos.y >  1.1 { myPos.y =  1.1; myVel.y *= -0.4; }
 
-  if (pos.x < -1.1) { pos.x = -1.1; vel.x *= -0.4; }
-  if (pos.x >  1.1) { pos.x =  1.1; vel.x *= -0.4; }
-  if (pos.y < -1.1) { pos.y = -1.1; vel.y *= -0.4; }
-  if (pos.y >  1.1) { pos.y =  1.1; vel.y *= -0.4; }
-
-  life = life;
-
-  particlesA[i].a = vec4<f32>(pos, vel);
-  particlesB[i].b = vec4<f32>(home, seed, life);
+  particlesA[i].a = vec4<f32>(myPos, myVel);
 }

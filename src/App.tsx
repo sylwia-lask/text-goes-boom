@@ -9,8 +9,8 @@ export default function TextGoesBoom() {
   const rendererRef = useRef<TextBoomRenderer | null>(null);
 
   const [text, setText] = useState("TEXT GOES BOOM");
-  const [step, setStep] = useState(2);
-  const [size, setSize] = useState(140);
+  const [step, setStep] = useState(1);
+  const [size, setSize] = useState(180);
 
   const [particleCount, setParticleCount] = useState(0);
   const [status, setStatus] = useState<"boot" | "ready" | "error">("boot");
@@ -101,7 +101,7 @@ export default function TextGoesBoom() {
         <header className="flex flex-col gap-3">
           <div className="inline-flex items-center gap-2 w-fit rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-white/70 backdrop-blur-md">
             <span className="inline-block h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_18px_rgba(52,211,153,0.75)]" />
-            WASM + WebGPU · compute-driven particles
+            WASM + WebGPU · 200k particle demo
           </div>
 
           <h1 className="text-3xl sm:text-5xl font-black tracking-tight">
@@ -112,7 +112,11 @@ export default function TextGoesBoom() {
           </h1>
 
           <p className="max-w-2xl text-sm sm:text-base text-white/70">
-            Type a phrase, rebuild the particles, then click and drag to blow the text apart.
+            Type a phrase, rebuild the particles, then click and drag to blow them apart.
+            <strong className="text-white/90"> Rust/WASM</strong> seeds ~200k particle positions
+            using a Felzenszwalb–Huttenlocher SDF and spatial-grid relaxation. Every frame a{" "}
+            <strong className="text-white/90">WebGPU compute shader</strong> runs spring + noise
+            physics across all particles in parallel.
           </p>
         </header>
 
@@ -257,26 +261,32 @@ export default function TextGoesBoom() {
 
             <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div className="rounded-2xl border border-white/10 bg-black/30 backdrop-blur-md p-4">
-                <div className="text-xs text-white/55">Stage</div>
-                <div className="mt-1 font-bold">Data prep</div>
+                <div className="text-xs text-white/55">Stage 1 · Rust / WASM</div>
+                <div className="mt-1 font-bold">SDF + Relaxation</div>
                 <div className="mt-1 text-sm text-white/65">
-                  Canvas text mask → WASM samples pixels into particle buffers.
+                  Felzenszwalb–Huttenlocher exact EDT in O(w·h). Normalized distance
+                  field biases sampling toward edges. 12 rounds of spatial-grid
+                  repulsion spread particles evenly inside the glyph.
                 </div>
               </div>
 
               <div className="rounded-2xl border border-white/10 bg-black/30 backdrop-blur-md p-4">
-                <div className="text-xs text-white/55">Stage</div>
-                <div className="mt-1 font-bold">Simulation</div>
+                <div className="text-xs text-white/55">Stage 2 · WGSL compute</div>
+                <div className="mt-1 font-bold">Spring + noise physics</div>
                 <div className="mt-1 text-sm text-white/65">
-                  Compute shader updates positions with spring + noise + mouse force.
+                  O(n) per frame — each particle independently applies spring toward
+                  home, position-based noise turbulence, and mouse repulsion. Runs
+                  across 200k particles in a single dispatch.
                 </div>
               </div>
 
               <div className="rounded-2xl border border-white/10 bg-black/30 backdrop-blur-md p-4">
-                <div className="text-xs text-white/55">Stage</div>
-                <div className="mt-1 font-bold">Render</div>
+                <div className="text-xs text-white/55">Stage 3 · WGSL render</div>
+                <div className="mt-1 font-bold">Instanced render</div>
                 <div className="mt-1 text-sm text-white/65">
-                  Instanced quads with additive blending for that neon pop.
+                  One instanced draw call per frame. SDF value drives a
+                  hot-pink → violet → indigo gradient. Additive blending
+                  gives the neon glow effect.
                 </div>
               </div>
             </div>

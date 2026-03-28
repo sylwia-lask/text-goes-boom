@@ -3,7 +3,7 @@ struct ParticleA {
 }
 
 struct ParticleB {
-  b: vec4<f32>, // home.xy, seed, sdf  (sdf: 0=edge, 1=interior)
+  b: vec4<f32>, // home.xy, seed, sdf
 }
 
 struct RenderParams {
@@ -58,7 +58,7 @@ fn vs_main(
   @builtin(instance_index)        instance : u32
 ) -> VSOut {
   let p   = particlesA[instance].a.xy;
-  let sdf = particlesB[instance].b.w; // 0 = edge, 1 = deep interior
+  let sdf = particlesB[instance].b.w;
 
   let px = (corner.x * rp.particleSize * 2.0) / max(1.0, rp.resolution.x);
   let py = (corner.y * rp.particleSize * 2.0) / max(1.0, rp.resolution.y);
@@ -83,26 +83,17 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   }
   let alpha = smoothstep(soft, 0.0, d);
 
-  // --- colour palette ---
-  // Edge particles (sdf ≈ 0): hot pink / fuchsia
-  // Interior particles (sdf ≈ 1): deep violet / indigo
   let hot_pink = vec3<f32>(1.00, 0.20, 0.78);
   let fuchsia  = vec3<f32>(1.00, 0.00, 0.92);
   let violet   = vec3<f32>(0.55, 0.30, 1.00);
   let indigo   = vec3<f32>(0.28, 0.10, 0.80);
 
-  let rnd = hash01(in.id);
-
-  // Subtle per-particle shimmer
+  let rnd     = hash01(in.id);
   let shimmer = 0.08 * sin(rp.time * 1.1 + rnd * 6.283);
+  let sdf_t   = saturate(in.sdf + shimmer);
+  let base    = mix3(hot_pink, violet, indigo, sdf_t);
 
-  // SDF drives the main colour: edge → fuchsia, interior → indigo
-  let sdf_t = saturate(in.sdf + shimmer);
-  let base  = mix3(hot_pink, violet, indigo, sdf_t);
-
-  // Brightness: edge particles are ~30% brighter than interior ones
   let brightness = mix(1.15, 0.75, saturate(in.sdf));
-
   let glow = alpha * alpha * (brightness + 0.5 * sin(rp.time * 0.7 + rnd * 8.0));
   let rgb  = base * (0.30 + 1.30 * glow);
 

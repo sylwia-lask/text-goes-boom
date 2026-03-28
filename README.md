@@ -1,73 +1,89 @@
-# React + TypeScript + Vite
+# Text Goes Boom
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+**Live demo → [sylwia-lask.github.io/text-goes-boom](https://sylwia-lask.github.io/text-goes-boom/)**
 
-Currently, two official plugins are available:
+A WebGPU + WebAssembly particle demo. Type any phrase, press *Rebuild*, then click and drag to explode the text.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+![screenshot](docs/screenshot.png)
 
-## React Compiler
+## What it does
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+Particles are placed inside the typed glyphs and spring back to their home positions. Every frame, a WebGPU compute shader runs an N-body repulsion between all particles so they spread out naturally rather than piling on top of each other.
 
-## Expanding the ESLint configuration
+## How it works — three stages
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+### Stage 1 · Rust / WASM — SDF & placement
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+When you hit *Rebuild*, a Canvas 2D renders the text to a pixel buffer. That buffer is handed to a **Rust module compiled to WASM** which runs:
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+1. **Felzenszwalb–Huttenlocher exact EDT** — O(w·h) separable 1-D parabola algorithm that produces a signed-distance field for the glyph interior. Values range from 0 (on the edge) to 1 (deepest interior).
+2. **Uniform grid sampling** — every interior grid point (step × step cell) spawns a particle with a small random jitter within the cell. At step = 1 this yields one particle per interior pixel — around 200k for "TEXT GOES BOOM" at font 180px.
+3. **Spatial-grid relaxation** — 4 iterations of neighbourhood repulsion push particles apart while keeping every particle inside the mask. At step = 1 density the grid placement is already tight, so 4 iterations is enough and keeps rebuild fast.
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+The same algorithm is re-implemented in TypeScript in [`src/benchmark.ts`](src/benchmark.ts) so the rebuild panel can show a live WASM vs JS timing comparison.
+
+### Stage 2 · WGSL compute shader — spring + noise physics
+
+[`src/gpu/shaders/textBoom.compute.wgsl`](src/gpu/shaders/textBoom.compute.wgsl)
+
+Each frame a compute pass dispatches one workgroup per 256 particles. Physics is O(n) so it scales to 200k particles with ease.
+
+- **Spring** — each particle is pulled toward its home position (`SPRING = 12`).
+- **Noise turbulence** — position-and-time-based `hash11` gives each particle a unique wobble frequency (scaled by its `seed` value) so the crowd doesn't move in lock-step.
+- **Mouse** — pointer-down applies a radial repulsion force.
+
+### Stage 3 · WGSL render shader — instanced draw
+
+[`src/gpu/shaders/textBoom.render.wgsl`](src/gpu/shaders/textBoom.render.wgsl)
+
+A single `draw(6, particleCount)` call renders all particles as instanced quads.
+
+- The SDF value stored per particle drives a colour gradient: **hot pink** (edge) → **fuchsia** → **violet** → **indigo** (interior).
+- **Additive blending** (`srcFactor: "src-alpha", dstFactor: "one"`) gives the neon glow from overlapping particles.
+
+## JS vs WASM benchmark
+
+The rebuild panel shows how long the SDF + relaxation pipeline takes in WASM versus a line-for-line JS port. Both implementations are deliberately kept in sync:
+
+| Detail | WASM (Rust) | JS (TypeScript) |
+|---|---|---|
+| EDT | `sdf.rs` — `dt1d` / `compute_sdf` | `benchmark.ts` — `dt1d` / `computeSdf` |
+| RNG | `rng.rs` — LCG seed `0xA3C51F2D` | `benchmark.ts` — `class Lcg`, same seed |
+| Relaxation | `relax.rs` — `relax_inside`, strength 0.40 | `benchmark.ts` — `relaxInside`, same |
+| Iterations | 12 | 12 |
+
+## Tech stack
+
+| | |
+|---|---|
+| Rendering | WebGPU (compute + render pipeline) |
+| Physics | WGSL compute shader — N-body, tiled shared memory |
+| Particle placement | Rust → WASM via wasm-pack / wasm-bindgen |
+| UI | React 19 + Tailwind CSS v4 |
+| Bundler | Vite 7 |
+
+## Local development
+
+```bash
+# Install Rust toolchain (if needed)
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+
+# Install wasm-pack (if needed)
+cargo install wasm-pack
+
+# Build WASM + start dev server
+npm run dev:all
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+Requires a browser with WebGPU support (Chrome 113+ / Edge 113+).
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+## Build for production
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm run wasm:build   # compile Rust → src/wasm-pkg/
+npm run build        # TypeScript + Vite → dist/
 ```
+
+## Deployment
+
+GitHub Actions builds and deploys to GitHub Pages on every push to `main`. See [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml).

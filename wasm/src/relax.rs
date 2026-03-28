@@ -1,8 +1,5 @@
 use crate::outline::project_to_nearest_edge;
 
-/// Relaxes particles that live inside the text mask.
-/// Each iteration pushes overlapping particles apart;
-/// if a move would land outside the mask the particle stays put.
 pub fn relax_inside(
     px: &mut [f32],
     py: &mut [f32],
@@ -81,7 +78,6 @@ pub fn relax_inside(
         for i in 0..n {
             let nx = (px[i] + dx[i] * STRENGTH).clamp(0.5, w as f32 - 0.5);
             let ny = (py[i] + dy[i] * STRENGTH).clamp(0.5, h as f32 - 0.5);
-            // Only accept the move if the new position is still inside the mask.
             let ix = nx as usize;
             let iy = ny as usize;
             if ix < w && iy < h && inside[iy * w + ix] == 1 {
@@ -160,10 +156,8 @@ pub fn relax_on_edges(
                         }
                         let d = d2.sqrt();
                         let push = (r - d) / r;
-                        let nxv = vx / d;
-                        let nyv = vy / d;
-                        dx[i] += nxv * push;
-                        dy[i] += nyv * push;
+                        dx[i] += vx / d * push;
+                        dy[i] += vy / d * push;
                     }
                 }
             }

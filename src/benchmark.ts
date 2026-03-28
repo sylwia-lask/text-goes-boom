@@ -215,7 +215,6 @@ function particlesJS(
     for (let x = half; x < w; x += step) {
       const i = y * w + x;
       if (inside[i] === 0) continue;
-      if (rng.nextF32() > 1.0 - sdf[i] * 0.75) continue;
 
       const jx = (rng.nextF32() - 0.5) * step * 0.85;
       const jy = (rng.nextF32() - 0.5) * step * 0.85;
@@ -224,10 +223,10 @@ function particlesJS(
     }
   }
 
-  // Stage 3: relaxation — same 12 iterations as WASM
+  // Stage 3: relaxation — same 4 iterations as WASM
   const pxF = new Float32Array(pxArr);
   const pyF = new Float32Array(pyArr);
-  relaxInside(pxF, pyF, w, h, inside, Math.max(2, step * 1.3 + 1.5), 12);
+  relaxInside(pxF, pyF, w, h, inside, Math.max(2, step * 1.3 + 1.5), 4);
 
   // Stage 4: pack into GPU layout
   const count = pxF.length;
