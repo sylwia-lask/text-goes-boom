@@ -182,7 +182,10 @@ class Lcg {
     this.state = (Math.imul(this.state, 1664525) + 1013904223) >>> 0;
     return this.state;
   }
-  nextF32(): number { return this.nextU32() / 4294967296; }
+  nextF32(): number {
+    const v = (this.nextU32() >>> 8) & 0x00ff_ffff;
+    return v / 16777216;
+  }
 }
 
 // ── Particle sampling (mirrors particles.rs) ─────────────────────────────────
