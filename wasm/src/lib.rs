@@ -3,6 +3,7 @@ use wasm_bindgen::prelude::*;
 mod rng;
 mod outline;
 mod sdf;
+mod relax;
 mod particles;
 
 #[wasm_bindgen]

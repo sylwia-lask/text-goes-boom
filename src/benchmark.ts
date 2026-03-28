@@ -94,6 +94,85 @@ function computeSdf(w: number, h: number, inside: Uint8Array): Float32Array {
   return sdf;
 }
 
+// ── Spatial-grid relaxation ───────────────────────────────────────────────────
+
+function relaxInside(
+  px: Float32Array,
+  py: Float32Array,
+  w: number,
+  h: number,
+  inside: Uint8Array,
+  radiusPx: number,
+  iters: number,
+): void {
+  const n = px.length;
+  if (n === 0) return;
+
+  const r = Math.max(radiusPx, 1);
+  const r2 = r * r;
+  const cell = r;
+  const cols = Math.max(1, Math.ceil(w / cell));
+  const rows = Math.max(1, Math.ceil(h / cell));
+  const gridSize = cols * rows;
+
+  // grid[k] = array of particle indices in that cell
+  const grid: number[][] = Array.from({ length: gridSize }, () => []);
+  const dx = new Float32Array(n);
+  const dy = new Float32Array(n);
+
+  for (let iter = 0; iter < iters; iter++) {
+    for (let k = 0; k < gridSize; k++) grid[k].length = 0;
+
+    for (let i = 0; i < n; i++) {
+      const cx = Math.min(cols - 1, Math.max(0, Math.floor(px[i] / cell)));
+      const cy = Math.min(rows - 1, Math.max(0, Math.floor(py[i] / cell)));
+      grid[cy * cols + cx].push(i);
+    }
+
+    dx.fill(0);
+    dy.fill(0);
+
+    for (let i = 0; i < n; i++) {
+      const cx = Math.floor(px[i] / cell);
+      const cy = Math.floor(py[i] / cell);
+
+      for (let oy = -1; oy <= 1; oy++) {
+        const ny = cy + oy;
+        if (ny < 0 || ny >= rows) continue;
+        for (let ox = -1; ox <= 1; ox++) {
+          const nx = cx + ox;
+          if (nx < 0 || nx >= cols) continue;
+          const bucket = grid[ny * cols + nx];
+          for (let bi = 0; bi < bucket.length; bi++) {
+            const j = bucket[bi];
+            if (j === i) continue;
+            const vx = px[i] - px[j];
+            const vy = py[i] - py[j];
+            const d2 = vx * vx + vy * vy;
+            if (d2 <= 1e-6 || d2 >= r2) continue;
+            const d = Math.sqrt(d2);
+            const push = (r - d) / r;
+            dx[i] += (vx / d) * push;
+            dy[i] += (vy / d) * push;
+          }
+        }
+      }
+    }
+
+    const strength = 0.4;
+    for (let i = 0; i < n; i++) {
+      const nx = Math.min(w - 0.5, Math.max(0.5, px[i] + dx[i] * strength));
+      const ny = Math.min(h - 0.5, Math.max(0.5, py[i] + dy[i] * strength));
+      const ix = Math.min(w - 1, nx | 0);
+      const iy = Math.min(h - 1, ny | 0);
+      if (inside[iy * w + ix] === 1) {
+        px[i] = nx;
+        py[i] = ny;
+      }
+    }
+  }
+}
+
 // ── LCG matching the Rust implementation ─────────────────────────────────────
 
 class Lcg {
@@ -127,35 +206,44 @@ function particlesJS(
   step = Math.max(1, step);
   const half = Math.max(1, step >> 1);
   const rng = new Lcg(0xa3c51f2d);
-  const out: number[] = [];
+
+  // Stage 2: grid sampling
+  const pxArr: number[] = [];
+  const pyArr: number[] = [];
 
   for (let y = half; y < h; y += step) {
     for (let x = half; x < w; x += step) {
       const i = y * w + x;
       if (inside[i] === 0) continue;
-
-      const sdfHere = sdf[i];
-      const prob = 1.0 - sdfHere * 0.75;
-      if (rng.nextF32() > prob) continue;
+      if (rng.nextF32() > 1.0 - sdf[i] * 0.75) continue;
 
       const jx = (rng.nextF32() - 0.5) * step * 0.85;
       const jy = (rng.nextF32() - 0.5) * step * 0.85;
-      const fx = Math.min(Math.max(x + 0.5 + jx, 0.5), w - 0.5);
-      const fy = Math.min(Math.max(y + 0.5 + jy, 0.5), h - 0.5);
-
-      const ix = Math.min(fx | 0, w - 1);
-      const iy = Math.min(fy | 0, h - 1);
-      const sdfVal = inside[iy * w + ix] === 1 ? sdf[iy * w + ix] : sdfHere;
-
-      const cx = (fx / w) * 2 - 1;
-      const cy = 1 - (fy / h) * 2;
-      const seed = rng.nextF32();
-
-      out.push(cx, cy, 0, 0, cx, cy, seed, sdfVal);
+      pxArr.push(Math.min(Math.max(x + 0.5 + jx, 0.5), w - 0.5));
+      pyArr.push(Math.min(Math.max(y + 0.5 + jy, 0.5), h - 0.5));
     }
   }
 
-  return new Float32Array(out);
+  // Stage 3: relaxation — same 12 iterations as WASM
+  const pxF = new Float32Array(pxArr);
+  const pyF = new Float32Array(pyArr);
+  relaxInside(pxF, pyF, w, h, inside, Math.max(2, step * 1.3 + 1.5), 12);
+
+  // Stage 4: pack into GPU layout
+  const count = pxF.length;
+  const out = new Float32Array(count * 8);
+  for (let i = 0; i < count; i++) {
+    const ix = Math.min(w - 1, pxF[i] | 0);
+    const iy = Math.min(h - 1, pyF[i] | 0);
+    const sdfVal = inside[iy * w + ix] === 1 ? sdf[iy * w + ix] : 0;
+    const cx = (pxF[i] / w) * 2 - 1;
+    const cy = 1 - (pyF[i] / h) * 2;
+    const seed = rng.nextF32();
+    const b = i * 8;
+    out[b] = cx; out[b+1] = cy; out[b+2] = 0; out[b+3] = 0;
+    out[b+4] = cx; out[b+5] = cy; out[b+6] = seed; out[b+7] = sdfVal;
+  }
+  return out;
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
